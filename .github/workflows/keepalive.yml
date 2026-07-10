@@ -1,0 +1,25 @@
+name: Keep WorkBuddy DevTop Alive
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 每 30 分钟访问一次
+  workflow_dispatch:         # 也支持在 Actions 页面手动触发
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 访问开发桌面 (Basic Auth 保活)
+        env:
+          URL: ${{ secrets.WEBTOP_URL }}
+          USER: ${{ secrets.WEBTOP_USER }}
+          PASS: ${{ secrets.WEBTOP_PASSWORD }}
+        run: |
+          echo "访问目标: $URL"
+          code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$USER:$PASS" "$URL")
+          echo "HTTP 状态码: $code"
+          if [ "$code" = "200" ]; then
+            echo "✅ 沙箱在线，保活成功"
+          else
+            echo "⚠️ 返回 $code（沙箱可能已休眠，需手动点 CloudStudio 启动）"
+          fi
