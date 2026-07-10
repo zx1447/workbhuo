@@ -1,0 +1,104 @@
+name: Auto-Wake DevTop (无头浏览器点击启动)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # 每 30 分钟
+  workflow_dispatch:
+
+env:
+  WEBTOP_URL: ${{ secrets.WEBTOP_URL }}
+  WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
+  WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
+  CS_SESSION: ${{ secrets.CS_SESSION }}   # 可选：CloudStudio 登录会话 cookie（整段 cookie 请求头）
+  SANDBOX_ID: affbdd3a0a5c400597ee8e858a624486
+  BASE: https://webview.e2b.gz3.sandbox.cloudstudio.club
+  RESTART_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/dashboard?restart=true
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 探测桌面是否在线
+        id: probe
+        run: |
+          code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
+          echo "桌面状态码: $code"
+          if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then
+            echo "online=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 沙箱在线，无需唤醒"
+          else
+            echo "online=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ 桌面不可达，准备用无头浏览器点击「启动」"
+          fi
+
+      - name: 无头浏览器打开桌面并点击「启动」
+        if: steps.probe.outputs.online == 'false'
+        timeout-minutes: 12
+        run: |
+          pip install --quiet playwright
+          playwright install --with-deps chromium
+          python3 - <<'PY'
+          import os, time
+          from playwright.sync_api import sync_playwright
+
+          BASE      = os.environ['BASE']
+          url       = os.environ['WEBTOP_URL']
+          user      = os.environ['WEBTOP_USER']
+          pwd       = os.environ['WEBTOP_PASSWORD']
+          restart   = os.environ['RESTART_URL']
+          cs        = os.environ.get('CS_SESSION', '').strip()
+          sandbox_id= os.environ['SANDBOX_ID']
+
+          with sync_playwright() as p:
+              b = p.chromium.launch()
+              ctx = b.new_context(http_credentials={"username": user, "password": pwd})
+              # 注入 CloudStudio 会话 cookie（若提供）
+              for part in cs.split(';'):
+                  part = part.strip()
+                  if '=' in part:
+                      k, v = part.split('=', 1)
+                      if k and k not in ('x-cs-sandbox-id', 'x-cs-sandbox-port'):
+                          try:
+                              ctx.add_cookies([{"name": k, "value": v, "url": BASE}])
+                          except Exception as e:
+                              print("cookie 注入跳过:", k, e)
+              page = ctx.new_page()
+              print("打开桌面:", url)
+              page.goto(url, wait_until="load", timeout=60000)
+              time.sleep(3)
+              # 尝试点击「启动」按钮（多种定位方式兜底）
+              clicked = False
+              for sel in ["text=启动", "button:has-text('启动')", "#startBtn", "[data-testid=start]"]:
+                  try:
+                      page.click(sel, timeout=8000)
+                      clicked = True
+                      print("✅ 已点击「启动」按钮")
+                      break
+                  except Exception:
+                      continue
+              if not clicked:
+                  print("⚠️ 未定位到启动按钮，改为直接访问 restart 端点")
+                  try:
+                      page.goto(restart, timeout=30000)
+                      print("已访问:", restart)
+                  except Exception as e:
+                      print("restart 端点访问失败:", e)
+              # 等待并复探
+              time.sleep(25)
+              code = page.evaluate("fetch(location.href,{method:'HEAD'}).then(r=>r.status).catch(()=>0)") \
+                    if False else ""
+              b.close()
+          print("无头浏览器操作完成")
+          PY
+
+      - name: 唤醒后复探确认
+        if: steps.probe.outputs.online == 'false'
+        run: |
+          sleep 10
+          code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
+          echo "唤醒后状态码: $code"
+          if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then
+            echo "✅ 沙箱已恢复在线"
+          else
+            echo "⚠️ 仍不可达 ($code)。若为 404，通常需要 CloudStudio 登录会话——请在 Secrets 配置 CS_SESSION"
+          fi
