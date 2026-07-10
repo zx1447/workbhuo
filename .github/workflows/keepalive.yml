@@ -2,50 +2,48 @@ name: Keep WorkBuddy DevTop Alive
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # 每 30 分钟
-  workflow_dispatch:         # 支持在 Actions 页面手动触发
+    - cron: '*/14 * * * *'   # 每 14 分钟
+  workflow_dispatch:
 
 env:
-  SANDBOX_ID: affbdd3a0a5c400597ee8e858a624486
-  RESTART_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/dashboard?restart=true
+  WEBTOP_URL: ${{ secrets.WEBTOP_URL }}
+  WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
+  WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
+  # 正确的启动 URL: /?restart=true（非 /dashboard?restart=true，后者返回 404）
+  RESTART_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?restart=true
 
 jobs:
   keepalive:
     runs-on: ubuntu-latest
-    env:
-      WEBTOP_URL: ${{ secrets.WEBTOP_URL }}
-      WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
-      WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
-      CS_SESSION: ${{ secrets.CS_SESSION }}   # 可选：CloudStudio 登录会话 cookie，用于自动唤醒
     steps:
       - name: 探测桌面是否在线
         id: probe
         run: |
           code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
-          echo "桌面探测状态码: $code"
+          echo "状态码: $code"
           if [ "$code" = "200" ] || [ "$code" = "301" ] || [ "$code" = "302" ]; then
             echo "online=true" >> "$GITHUB_OUTPUT"
             echo "✅ 沙箱在线，保活成功"
           else
             echo "online=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ 桌面不可达 (状态码 $code)"
+            echo "⚠️ 桌面不可达 ($code)"
           fi
 
-      - name: 不可达则尝试点击「启动」(CloudStudio 重启端点)
+      - name: 离线则调用 ?restart=true 唤醒
         if: steps.probe.outputs.online == 'false'
         run: |
-          echo "桌面不在线，尝试调用 CloudStudio 重启端点..."
-          COOKIE="x-cs-sandbox-id=$SANDBOX_ID; x-cs-sandbox-port=3000"
-          if [ -n "$CS_SESSION" ]; then
-            COOKIE="$COOKIE; $CS_SESSION"
-          fi
-          rcode=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' \
-            -u "$WEBTOP_USER:$WEBTOP_PASSWORD" \
-            -b "$COOKIE" \
-            "$RESTART_URL")
-          echo "重启端点返回: $rcode"
-          if [ "$rcode" = "200" ] || [ "$rcode" = "301" ] || [ "$rcode" = "302" ]; then
-            echo "✅ 已触发启动/重启"
+          echo "尝试唤醒沙箱..."
+          rcode=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' "$RESTART_URL")
+          echo "唤醒端点返回: $rcode"
+          if [ "$rcode" = "200" ] || [ "$rcode" = "302" ]; then
+            echo "✅ 已触发唤醒"
           else
-            echo "⚠️ 重启端点返回 $rcode（通常需要 CloudStudio 登录会话；若 404，请在 Secrets 中配置 CS_SESSION）"
+            echo "⚠️ 返回 $rcode"
+          fi
+          sleep 25
+          code2=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
+          if [ "$code2" = "200" ] || [ "$code2" = "301" ] || [ "$code2" = "302" ]; then
+            echo "✅ 沙箱已恢复在线"
+          else
+            echo "⚠️ 仍不可达 ($code2)"
           fi
