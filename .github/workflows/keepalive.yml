@@ -1,4 +1,4 @@
-name: Keep WorkBuddy DevTop Alive
+name: Keep WorkBuddy DevTop Alive (心跳探测)
 
 on:
   schedule:
@@ -6,12 +6,10 @@ on:
   workflow_dispatch:
 
 env:
-  # 关键: 必须带 x-cs-sandbox-id / x-cs-sandbox-port 参数, 否则网关返回 404 "工作空间没有找到"
+  # 规范地址(带 x-cs-sandbox-id 参数)，302 = 在线
   WEBTOP_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486&x-cs-sandbox-port=3000
   WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
   WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
-  CLOUDSTUDIO_COOKIE: ${{ secrets.CLOUDSTUDIO_COOKIE }}
-  RESTART_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?restart=true&x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486
 
 jobs:
   keepalive:
@@ -23,23 +21,7 @@ jobs:
           code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
           echo "探测状态码: $code"
           if [ "$code" = "302" ]; then
-            echo "online=true" >> "$GITHUB_OUTPUT"
             echo "✅ 沙箱在线 (302)"
           else
-            echo "online=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ 状态码 $code → 视为离线，准备唤醒"
-          fi
-
-      - name: 离线则用 CloudStudio 会话 Cookie 调 ?restart=true 唤醒
-        if: steps.probe.outputs.online == 'false'
-        run: |
-          echo "调用启动端点 (带会话 Cookie): $RESTART_URL"
-          rcode=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -H "Cookie: $CLOUDSTUDIO_COOKIE" "$RESTART_URL")
-          echo "启动端点返回: $rcode"
-          sleep 30
-          code2=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
-          if [ "$code2" = "302" ]; then
-            echo "✅ 沙箱已恢复在线"
-          else
-            echo "⚠️ 仍不可达 ($code2) —— 会话 Cookie 可能已过期，请刷新 GitHub Secret: CLOUDSTUDIO_COOKIE"
+            echo "⚠️ 状态码 $code → 沙箱可能已休眠；自动唤醒由 auto-wake.yml 负责"
           fi
