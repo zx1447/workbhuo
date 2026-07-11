@@ -1,4 +1,4 @@
-name: Auto-Wake DevTop (CloudStudio 会话唤醒)
+name: Auto-Wake DevTop (Python 浏览器登录控制台启动)
 
 on:
   schedule:
@@ -6,19 +6,24 @@ on:
   workflow_dispatch:
 
 env:
-  # 关键: 必须带 x-cs-sandbox-id / x-cs-sandbox-port 参数, 否则网关返回 404 "工作空间没有找到"
+  # 规范地址(带 x-cs-sandbox-id 参数)，302 = 在线
   WEBTOP_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486&x-cs-sandbox-port=3000
   WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
   WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
-  # 你的 CloudStudio 登录会话 Cookie (从浏览器 DevTools 复制); 仅真正停用时用于唤醒
+  # 控制台启动所需鉴权（二选一，优先 Cookie）
+  CONSOLE_URL: ${{ secrets.CONSOLE_URL }}
+  SPACE_KEY: affbdd3a0a5c400597ee8e858a624486
   CLOUDSTUDIO_COOKIE: ${{ secrets.CLOUDSTUDIO_COOKIE }}
-  BARE_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/
-  RESTART_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?restart=true&x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486
+  CLOUDSTUDIO_USER: ${{ secrets.CLOUDSTUDIO_USER }}
+  CLOUDSTUDIO_PASS: ${{ secrets.CLOUDSTUDIO_PASS }}
 
 jobs:
   wake:
     runs-on: ubuntu-latest
     steps:
+      - name: 拉取仓库(含唤醒脚本)
+        uses: actions/checkout@v4
+
       - name: 探测桌面 (仅 302 算真正在线)
         id: probe
         run: |
@@ -29,91 +34,16 @@ jobs:
             echo "✅ 沙箱在线 (302)"
           else
             echo "online=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ 状态码 $code → 视为离线，准备唤醒"
+            echo "⚠️ 状态码 $code → 视为离线，准备用浏览器登录控制台启动"
           fi
 
-      - name: 用 CloudStudio 会话 Cookie 调 ?restart=true
-        id: restart
+      - name: Python 无头浏览器登录控制台点击「启动」
         if: steps.probe.outputs.online == 'false'
-        run: |
-          echo "调用启动端点 (带会话 Cookie): $RESTART_URL"
-          rcode=$(curl -sS -m 60 -o /dev/null -w '%{http_code}' -H "Cookie: $CLOUDSTUDIO_COOKIE" "$RESTART_URL")
-          echo "启动端点返回: $rcode"
-          sleep 30
-          code2=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
-          if [ "$code2" = "302" ]; then
-            echo "✅ 沙箱已恢复在线 (Cookie 方式生效)"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "⚠️ Cookie 方式仍不可达 ($code2)，准备无头浏览器兜底"
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: 兜底 - 无头浏览器注入会话 Cookie 点击「立即启动」
-        if: steps.probe.outputs.online == 'false' && steps.restart.outputs.ok != 'true'
-        timeout-minutes: 12
+        timeout-minutes: 15
         run: |
           pip install --quiet playwright
           playwright install --with-deps chromium
-          python3 - <<'PY'
-          import os, time
-          from playwright.sync_api import sync_playwright
-
-          BARE    = os.environ['BARE_URL']
-          url     = os.environ['WEBTOP_URL']
-          user    = os.environ['WEBTOP_USER']
-          pwd     = os.environ['WEBTOP_PASSWORD']
-          restart = os.environ['RESTART_URL']
-          cookie_str = os.environ.get('CLOUDSTUDIO_COOKIE', '')
-
-          cookies = []
-          for part in cookie_str.split(';'):
-              part = part.strip()
-              if '=' in part:
-                  k, v = part.split('=', 1)
-                  cookies.append({"name": k.strip(), "value": v.strip(),
-                                  "domain": ".cloudstudio.club", "path": "/"})
-
-          with sync_playwright() as p:
-              b = p.chromium.launch()
-              ctx = b.new_context(http_credentials={"username": user, "password": pwd})
-              if cookies:
-                  ctx.add_cookies(cookies)
-              page = ctx.new_page()
-
-              print("[1] 打开裸地址:", BARE)
-              page.goto(BARE, wait_until="load", timeout=60000)
-              time.sleep(4)
-
-              clicked = False
-              selectors = [
-                  "text=立即启动",
-                  ".button.button-primary:has-text('立即启动')",
-                  "button:has-text('立即启动')",
-                  "#startBtn",
-              ]
-              for sel in selectors:
-                  try:
-                      btn = page.locator(sel)
-                      if btn.count() > 0 and btn.first.is_visible(timeout=5000):
-                          btn.first.click()
-                          clicked = True
-                          print(f"[2] ✅ 已点击「立即启动」(选择器: {sel})")
-                          break
-                  except Exception:
-                      continue
-
-              if not clicked:
-                  print("[2] ⚠️ 未定位按钮，直接访问 ?restart=true")
-                  try:
-                      page.goto(restart, timeout=30000)
-                  except Exception as e:
-                      print(f"[2] restart 异常: {e}")
-
-              print("[3] 等待沙箱启动...")
-              time.sleep(30)
-              b.close()
-          PY
+          python wake_cloudstudio.py
 
       - name: 唤醒后复探确认
         if: steps.probe.outputs.online == 'false'
@@ -124,5 +54,5 @@ jobs:
           if [ "$code" = "302" ]; then
             echo "✅ 沙箱已恢复在线"
           else
-            echo "⚠️ 仍不可达 ($code) —— 会话 Cookie 可能已过期，请到 GitHub Secrets 刷新 CLOUDSTUDIO_COOKIE"
+            echo "⚠️ 仍不可达 ($code) —— 检查 CLOUDSTUDIO_COOKIE / 控制台账号 是否失效，或 CONSOLE_URL / 启动按钮选择器是否需要调整"
           fi
