@@ -1,4 +1,4 @@
-name: Keep WorkBuddy DevTop Alive (心跳探测)
+name: Keep WorkBuddy DevTop Alive (心跳 + 真实流量)
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  # 规范地址(带 x-cs-sandbox-id 参数)，302 = 在线
+  # 规范地址(带 x-cs-sandbox-id 参数)，200/302 = 在线
   WEBTOP_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486&x-cs-sandbox-port=3000
   WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
   WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
@@ -15,13 +15,15 @@ jobs:
   keepalive:
     runs-on: ubuntu-latest
     steps:
-      - name: 探测桌面 (仅 302 算真正在线)
+      - name: 制造真实流量 (带鉴权的 GET，拉取页面内容)
         id: probe
         run: |
-          code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
+          # 带真实账号密码请求：返回 200 = 桌面已加载（在线且有流量）
+          # 仅 302 = 网关在线但未过 Basic Auth；404 = 未注册/已休眠
+          code=$(curl -sS -m 90 -u "$WEBTOP_USER:$WEBTOP_PASSWORD" -o /dev/null -w '%{http_code}' "$WEBTOP_URL")
           echo "探测状态码: $code"
-          if [ "$code" = "302" ]; then
-            echo "✅ 沙箱在线 (302)"
+          if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+            echo "✅ 沙箱在线 (状态码 $code)，已产生一次访问流量"
           else
             echo "⚠️ 状态码 $code → 沙箱可能已休眠；自动唤醒由 auto-wake.yml 负责"
           fi

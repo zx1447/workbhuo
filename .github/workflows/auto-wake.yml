@@ -1,21 +1,17 @@
-name: Auto-Wake DevTop (Python 浏览器登录控制台启动)
+name: Auto-Wake DevTop (带鉴权访问桌面地址唤醒)
 
 on:
   schedule:
-    - cron: '*/14 * * * *'   # 每 14 分钟
+    - cron: '*/30 * * * *'   # 每 30 分钟（按你的要求）
   workflow_dispatch:
 
 env:
-  # 规范地址(带 x-cs-sandbox-id 参数)，302 = 在线
+  # 规范地址(带 x-cs-sandbox-id 参数)，200/302 = 在线
   WEBTOP_URL: https://webview.e2b.gz3.sandbox.cloudstudio.club/?x-cs-sandbox-id=affbdd3a0a5c400597ee8e858a624486&x-cs-sandbox-port=3000
   WEBTOP_USER: ${{ secrets.WEBTOP_USER }}
   WEBTOP_PASSWORD: ${{ secrets.WEBTOP_PASSWORD }}
-  # 控制台启动所需鉴权（二选一，优先 Cookie）
-  CONSOLE_URL: ${{ secrets.CONSOLE_URL }}
-  SPACE_KEY: affbdd3a0a5c400597ee8e858a624486
-  CLOUDSTUDIO_COOKIE: ${{ secrets.CLOUDSTUDIO_COOKIE }}
-  CLOUDSTUDIO_USER: ${{ secrets.CLOUDSTUDIO_USER }}
-  CLOUDSTUDIO_PASS: ${{ secrets.CLOUDSTUDIO_PASS }}
+  # 可选兜底：若仅 webtop 鉴权不足以唤醒（依赖控制台会话），填控制台「启动」请求 cURL
+  START_API_CURL: ${{ secrets.START_API_CURL }}
 
 jobs:
   wake:
@@ -24,26 +20,23 @@ jobs:
       - name: 拉取仓库(含唤醒脚本)
         uses: actions/checkout@v4
 
-      - name: 探测桌面 (仅 302 算真正在线)
+      - name: 探测桌面 (带真实鉴权，200/302 = 在线)
         id: probe
         run: |
           code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
           echo "探测状态码: $code"
-          if [ "$code" = "302" ]; then
+          if [ "$code" = "200" ] || [ "$code" = "302" ]; then
             echo "online=true" >> "$GITHUB_OUTPUT"
-            echo "✅ 沙箱在线 (302)"
+            echo "✅ 沙箱在线 (200/302)"
           else
             echo "online=false" >> "$GITHUB_OUTPUT"
-            echo "⚠️ 状态码 $code → 视为离线，准备用浏览器登录控制台启动"
+            echo "⚠️ 状态码 $code → 视为离线，准备带鉴权访问唤醒"
           fi
 
-      - name: Python 无头浏览器登录控制台点击「启动」
+      - name: 带鉴权访问桌面地址以唤醒
         if: steps.probe.outputs.online == 'false'
         timeout-minutes: 15
-        run: |
-          pip install --quiet playwright
-          playwright install --with-deps chromium
-          python wake_cloudstudio.py
+        run: python wake_cloudstudio.py
 
       - name: 唤醒后复探确认
         if: steps.probe.outputs.online == 'false'
@@ -51,8 +44,8 @@ jobs:
           sleep 10
           code=$(curl -sS -m 90 -o /dev/null -w '%{http_code}' -u "$WEBTOP_USER:$WEBTOP_PASSWORD" "$WEBTOP_URL")
           echo "唤醒后状态码: $code"
-          if [ "$code" = "302" ]; then
+          if [ "$code" = "200" ] || [ "$code" = "302" ]; then
             echo "✅ 沙箱已恢复在线"
           else
-            echo "⚠️ 仍不可达 ($code) —— 检查 CLOUDSTUDIO_COOKIE / 控制台账号 是否失效，或 CONSOLE_URL / 启动按钮选择器是否需要调整"
+            echo "⚠️ 仍不可达 ($code) —— 可能唤醒依赖控制台会话，请提供 START_API_CURL 或 CLOUDSTUDIO_COOKIE"
           fi
