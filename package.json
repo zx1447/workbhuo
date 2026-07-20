@@ -1,17 +1,18 @@
 {
   "name": "user",
   "version": "1.0.0",
-  "main": "index.js",
+  "type": "module",
+  "main": "afk_bot.js",
   "scripts": {
+    "start": "node afk_bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Bulknodes / Heliactyl 挂机与自动续期（700 币自动续期）",
   "dependencies": {
     "dotenv": "^17.4.2",
-    "puppeteer": "^24.43.1",
     "ws": "^8.21.1"
   }
 }

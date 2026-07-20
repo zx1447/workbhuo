@@ -1,0 +1,51 @@
+name: BulkNodes AFK
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_minutes:
+        description: "单次挂机时长(分钟，最大350)"
+        required: false
+        default: "340"
+  schedule:
+    # 每 5 小时重新拉起一次，配合 RUN_MINUTES≈340，做到近乎 24/7 挂机
+    - cron: "0 */5 * * *"
+
+concurrency:
+  group: bulknodes-afk
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  afk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: board.bulk
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run AFK bot
+        env:
+          CONNECT_SID: ${{ secrets.CONNECT_SID }}
+          CF_CLEARANCE: ${{ secrets.CF_CLEARANCE }}
+          SERVER_ID: ${{ secrets.SERVER_ID || '110' }}
+          RENEW_THRESHOLD: ${{ secrets.RENEW_THRESHOLD || '700' }}
+          RENEW_DAYS: ${{ secrets.RENEW_DAYS || '7' }}
+          COST_PER_DAY: ${{ secrets.COST_PER_DAY || '100' }}
+          RUN_MINUTES: ${{ github.event.inputs.run_minutes || '340' }}
+          CHECK_INTERVAL: ${{ secrets.CHECK_INTERVAL || '120' }}
+          HEARTBEAT_INTERVAL: ${{ secrets.HEARTBEAT_INTERVAL || '30' }}
+          WATCHDOG_MIN: ${{ secrets.WATCHDOG_MIN || '10' }}
+        run: node afk_bot.js
