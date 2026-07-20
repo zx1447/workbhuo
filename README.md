@@ -39,7 +39,20 @@
 
 ---
 
-## 三、 如何使用与配置
+## 四、 Discord Token 一键自动登录与挂机 (`login_and_afk.js`)
+
+如果您使用的是 **Discord Token** 登录，我们也为您编写了自动化一键登录脚本 `login_and_afk.js`。
+
+### 使用方法：
+1. 在 `.env` 文件中填入您的 Discord Token：
+   ```env
+   DISCORD_TOKEN=填入你的Discord Token
+   ```
+2. 运行一键登录与挂机脚本：
+   ```bash
+   node login_and_afk.js
+   ```
+3. 脚本会自动使用 Puppeteer 模拟浏览器使用 Token 登录 Discord、自动授权面板、抓取 `connect.sid` 并自动写入 `.env`，随后无缝启动 24 小时挂机与自动续期机器人！
 
 ### 1. 准备工作
 确保您的服务器或本地环境已安装 **Node.js** (推荐 v18 或更高版本)。
