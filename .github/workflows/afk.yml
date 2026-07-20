@@ -1,5 +1,9 @@
 name: BulkNodes AFK
 
+# 重要：实测确认 dashboard.bulknodes.xyz 的 Cloudflare 会拦截 GitHub 机房 IP
+# （WebSocket 升级与 HTTP 请求均返回 403），因此本工作流在 GitHub 上无法挂机。
+# 下方 schedule 已禁用；保留 workflow_dispatch 仅供本机/可信 IP 环境手动测试。
+# 真正可用的方案见 README：「在本机（通过你的代理/IP）运行」或「浏览器保持 /afk 页面打开」。
 on:
   workflow_dispatch:
     inputs:
@@ -7,9 +11,8 @@ on:
         description: "单次挂机时长(分钟，最大350)"
         required: false
         default: "340"
-  schedule:
-    # 每 5 小时重新拉起一次，配合 RUN_MINUTES≈340，做到近乎 24/7 挂机
-    - cron: "0 */5 * * *"
+  # schedule:
+  #   - cron: "0 */5 * * *"
 
 concurrency:
   group: bulknodes-afk
