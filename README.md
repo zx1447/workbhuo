@@ -2,6 +2,10 @@
 
 本项目为您提供了一套完整的 **`dashboard.bulknodes.xyz` (Heliactyl 面板)** 挂机原理说明及自动化挂机/续期脚本。
 
+> ⚠️ **重要（实测结论）**：`dashboard.bulknodes.xyz` 的 Cloudflare **会拦截 GitHub Actions 的机房 IP**（WebSocket 升级和 HTTP 请求均返回 `403`）。因此本项目的 GitHub Actions 工作流**无法在该站挂机**——这不是代码问题，是 Cloudflare 在边缘直接拦了 GitHub IP，任何云机房 IP 都一样。
+>
+> **能跑通的前提**：请求必须来自 Cloudflare 信任的 IP（即你自己的浏览器 / 你本机通过你的代理出口）。因此请选择下面「三、在本机运行」或「四、浏览器」方案，不要指望 GitHub。
+
 ---
 
 ## 一、 网站挂机原理分析
