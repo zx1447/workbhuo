@@ -59,14 +59,26 @@ def visit():
 
 
 def run_start_api():
+    """调用控制台「启动」API（START_API_CURL 应为浏览器 Copy as cURL 原文，含会话 cookie）。
+
+    返回 True 表示本次调用看起来成功；返回 False 表示可能会话过期，需回退到 webtop 鉴权访问兜底。
+    """
     if not START_API_CURL:
         return False
-    log("优先调用控制台启动 API (START_API_CURL)")
+    log("方式 A：直接调用控制台启动 API (START_API_CURL)")
     try:
         cmd = START_API_CURL.replace("\n", " ").strip()
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
-        log(f"API 返回码={r.returncode}")
-        return r.returncode == 0
+        out = (r.stdout + r.stderr).strip().replace("\n", " ")[:300]
+        log(f"API 返回码={r.returncode} 响应(前300)={out}")
+        # 会话过期/未鉴权的典型信号：调用失败或响应里出现鉴权相关字样
+        if (r.returncode != 0
+                or "401" in out or "403" in out
+                or "Unauthorized" in out or "未登录" in out
+                or "forbidden" in out.lower()):
+            log("⚠️ 启动 API 未成功（可能会话过期/无控制台权限），继续尝试 webtop 鉴权访问兜底")
+            return False
+        return True
     except Exception as e:
         log(f"API 调用失败: {e}")
         return False
